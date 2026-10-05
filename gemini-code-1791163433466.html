@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>出遊分帳系統</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 text-gray-800 font-sans p-4 md:p-8">
+
+    <div class="max-w-2xl mx-auto bg-white p-6 rounded-lg shadow-md">
+        <h1 class="text-2xl font-bold mb-6 text-center text-blue-600">💸 出遊分帳小幫手</h1>
+
+        <!-- 第一部分：新增參與者 -->
+        <div class="mb-8 p-4 border rounded-md bg-gray-50">
+            <h2 class="text-lg font-semibold mb-2">1. 新增參與者</h2>
+            <div class="flex gap-2">
+                <input type="text" id="newUserName" placeholder="輸入名字 (例如: 小明)" class="flex-1 p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400">
+                <button onclick="addUser()" class="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600">新增</button>
+            </div>
+            <div id="userList" class="mt-3 flex flex-wrap gap-2"></div>
+        </div>
+
+        <!-- 第二部分：新增花費 -->
+        <div class="mb-8 p-4 border rounded-md bg-gray-50">
+            <h2 class="text-lg font-semibold mb-2">2. 記一筆花費</h2>
+            <div class="grid gap-3 mb-4">
+                <input type="text" id="itemName" placeholder="項目名稱 (例如: 晚餐)" class="p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400">
+                <input type="number" id="itemAmount" placeholder="總金額" class="p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400">
+                
+                <select id="payerSelect" class="p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400">
+                    <option value="">-- 選擇誰先墊錢 --</option>
+                </select>
+            </div>
+
+            <div class="mb-4">
+                <p class="font-semibold mb-2 text-sm text-gray-600">調整每人分攤比例 (預設為 1，填 0 代表不參與此項花費)：</p>
+                <div id="ratioInputs" class="grid grid-cols-2 gap-2">
+                    <p class="text-sm text-gray-400">請先新增參與者</p>
+                </div>
+            </div>
+            <button onclick="addExpense()" class="w-full bg-green-500 text-white px-4 py-2 rounded-md hover:bg-green-600">新增這筆花費</button>
+        </div>
+
+        <!-- 第三部分：結算結果 -->
+        <div class="p-4 border rounded-md bg-blue-50">
+            <h2 class="text-lg font-semibold mb-4 text-blue-800">3. 最佳化轉帳建議</h2>
+            <ul id="settlementResult" class="space-y-2 text-lg font-medium text-gray-700">
+                <li class="text-sm text-gray-500">目前尚無花費紀錄。</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        let users = [];
+        let expenses = [];
+
+        function updateUserUI() {
+            // 更新參與者標籤
+            document.getElementById('userList').innerHTML = users.map(u => 
+                `<span class="bg-gray-200 px-3 py-1 rounded-full text-sm">${u}</span>`
+            ).join('');
+
+            // 更新付款人下拉選單
+            document.getElementById('payerSelect').innerHTML = '<option value="">-- 選擇誰先墊錢 --</option>' + 
+                users.map(u => `<option value="${u}">${u}</option>`).join('');
+
+            // 更新分攤比例輸入框
+            document.getElementById('ratioInputs').innerHTML = users.map(u => `
+                <div class="flex items-center justify-between bg-white p-2 border rounded-md">
+                    <span>${u}</span>
+                    <input type="number" id="ratio_${u}" value="1" min="0" class="w-16 p-1 border rounded-md text-center">
+                </div>
+            `).join('');
+        }
+
+        function addUser() {
+            const name = document.getElementById('newUserName').value.trim();
+            if (name && !users.includes(name)) {
+                users.push(name);
+                document.getElementById('newUserName').value = '';
+                updateUserUI();
+            }
+        }
+
+        function addExpense() {
+            const item = document.getElementById('itemName').value.trim();
+            const amount = parseFloat(document.getElementById('itemAmount').value);
+            const payer = document.getElementById('payerSelect').value;
+
+            if (!item || !amount || !payer) {
+                alert('請填寫完整項目名稱、金額與墊錢的人！');
+                return;
+            }
+
+            let proportions = {};
+            let totalRatio = 0;
+            users.forEach(u => {
+                const ratio = parseFloat(document.getElementById(`ratio_${u}`).value) || 0;
+                proportions[u] = ratio;
+                totalRatio += ratio;
+            });
+
+            if (totalRatio === 0) {
+                alert('分攤比例總和不能為 0！');
+                return;
+            }
+
+            expenses.push({ item, amount, payer, proportions });
+            
+            // 清空輸入框
+            document.getElementById('itemName').value = '';
+            document.getElementById('itemAmount').value = '';
+            users.forEach(u => document.getElementById(`ratio_${u}`).value = '1');
+
+            calculateSettlement();
+        }
+
+        function calculateSettlement() {
+            if (expenses.length === 0) return;
+
+            let balances = {};
+            users.forEach(u => balances[u] = 0);
+
+            // 計算每個人的總餘額
+            expenses.forEach(exp => {
+                balances[exp.payer] += exp.amount; // 墊錢的人增加應收帳款
+                
+                let totalWeight = Object.values(exp.proportions).reduce((a, b) => a + b, 0);
+                for (let user in exp.proportions) {
+                    let owed = exp.amount * (exp.proportions[user] / totalWeight);
+                    balances[user] -= owed; // 扣除應該負擔的金額
+                }
+            });
+
+            // 區分債權人(應收)與債務人(應付)
+            let debtors = [];
+            let creditors = [];
+            for (let user in balances) {
+                if (balances[user] < -0.01) debtors.push({ user, amount: -balances[user] });
+                if (balances[user] > 0.01) creditors.push({ user, amount: balances[user] });
+            }
+
+            // 由金額大排到小
+            debtors.sort((a, b) => b.amount - a.amount);
+            creditors.sort((a, b) => b.amount - a.amount);
+
+            let results = [];
+            let i = 0, j = 0;
+
+            // 貪婪演算法配對
+            while (i < debtors.length && j < creditors.length) {
+                let settleAmount = Math.min(debtors[i].amount, creditors[j].amount);
+                
+                if (settleAmount > 0.5) { // 忽略小數點微小誤差
+                    results.push(`
+                        <li class="flex items-center justify-between border-b pb-2">
+                            <span class="text-red-500 font-bold">${debtors[i].user}</span>
+                            <span class="text-gray-500 mx-2">➡️ 轉帳給 ➡️</span>
+                            <span class="text-green-600 font-bold">${creditors[j].user}</span>
+                            <span class="ml-auto font-bold">NT$ ${Math.round(settleAmount)}</span>
+                        </li>
+                    `);
+                }
+
+                debtors[i].amount -= settleAmount;
+                creditors[j].amount -= settleAmount;
+
+                if (debtors[i].amount < 0.01) i++;
+                if (creditors[j].amount < 0.01) j++;
+            }
+
+            const resultContainer = document.getElementById('settlementResult');
+            if (results.length > 0) {
+                resultContainer.innerHTML = results.join('');
+            } else {
+                resultContainer.innerHTML = '<li class="text-green-500">目前帳務已結清，沒有人需要轉帳！</li>';
+            }
+        }
+    </script>
+</body>
+</html>
